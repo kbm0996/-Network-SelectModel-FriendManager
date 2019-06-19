@@ -1,28 +1,225 @@
 # 네트워크 프로그래밍 Select 모델 - 친구 관리 예제(+RapidJSON)
 ## 📢 개요
- 셀렉트(Select) 모델을 사용 하나의 서버에 다수의 플레이어가 참여할 수 있는 네트워크 프로그램. 각각의 클라이언트끼리는 친구 관계를 맺을 수 있다. 서버에서는 클라이언트 간의 친구 관계를 저장하고 불러오는 등 관리 역할을 한다.
+ 친구 시스템은 여러 종류가 있다. 그 중 트위터처럼 신청 즉시 친구가 되는 대신 상대방의 정보를 볼 수 있을 뿐 상방향 컨텐츠는 별로 없는 팔로워 방식이 있고, 페이스북처럼 요청과 수락이라는 과정이 있으면서 쌍방향 컨텐츠가 있는 방식이 있다. 해당 예제는 소켓 프로그래밍의 셀렉트 모델을 이용하여 후자를 따라해본 것이다.
 
   ![capture](https://github.com/kbm0996/-Network-SelectModel-FriendManager/blob/master/Friend_mail_Readme/Capture.PNG)
   
   *\*figure 1. Server & Client & Dummy*
  
- 네트워크 통신의 특성 상 패킷의 손실이나 각종 예기치 못한 일로 인해 서버와 각각의 클라이언트 간에 유저들의 위치 오차가 발생할 수 있다. 이는 추측 항법(推測航法, dead reckoning, dead reckoning navigation)이나 오차가 심해졌을 때 임의로 서버 측에서 정정하는 패킷을 보내서 해결해야만 한다.
+ 서버 프로그램에서는 소켓 네트워크를 기반으로 클라이언트 간의 컨텐츠를 중계해주고 친구 관계에 대한 데이터를 JSON 형식으로 저장하여 관리한다. 그리고 간단하게 현재 접속자 수를 모니터링하는 기능을 제공한다.
  
- 현재 이 프로그램에서는 단순히 셀렉트 모델의 동작 방식과 코드 구성을 알아보기 위한 간단한 소스코드이므로 그런 복잡한 코드가 없다. 하지만 실제로 온라인 서비스를 제공할 때에는 반드시 필요한 기능이다.
-
-## 📌 동작 원리
- Select 모델은 사용하면 소켓 함수 호출이 성공할 수 있는 시점을 미리 알 수 있다. 따라서 소켓 함수 호출 시 조건이 만족되지 않아 생기는 문제를 해결할 수 있다. 소켓 모드에 따른 Select 모델 사용의 효과는 다음과 같다.
-
-  · 블로킹 소켓 : 소켓 함수 호출 시 조건이 만족되지 않아 블로킹되는 상황을 막을 수 있다\
+ 클라이언트 프로그램에서는 회원추가(회원가입), 로그인, 회원목록 조회, 친구목록 조회, 받은 친구 요청 목록 조회, 보낸 친구 요청 조회, 친구 요청 보내기, 친구 요청 취소, 친구 요청 수락, 친구 요청 거부, 친구 제거와 같은 컨텐츠 요청을 서버측으로 보낼 수 있다.
  
-  · 넌블로킹 소켓 : 소켓 함수 호출 시 조건이 마족되지 않아 나중에 다시 호출해야 하는 상황을 막을 수 있다.
+ 더미 프로그램은 오직 서버의 스트레스 테스트를 위해 에코 패킷을 보내는 프로그램이다. 따라서 컨텐츠 테스트 기능은 따로 존재하지 않다. 
 
- 다음 그림은 Select 모델의 동작 원리를 보여준다. Select 모델을 사용하려면 소켓 셋(socket set)을 준비해야 한다. 소켓 셋은 소켓 디스크립터의 집합을 의미하며, 호출할 함수의 종류에 따라 소켓을 적당한 셋에 넣어두어야 한다. 예를 들면, 어떤 소켓에 대해 recv() 함수를 호출하고 싶다면 읽기 셋에 넣고, send() 함수를 호출하고 싶다면 쓰기 셋에 넣으면 된다.
- 
+## 📐 친구 관계 테이블(구조체)
  ![capture](https://github.com/kbm0996/-Network-SelectModel-FriendManager/blob/master/Friend_mail_Readme/Table.PNG)
   
   *\*figure 2. Table*
   
+1. 계정 ACCOUNT
+
+        Account
+          AccountNo	(64bit int)
+          ID 		(WCHAR 20,  19글자까지)
+
+2. 친구 FRIEND
+
+        Friend
+          FromAccountNo
+          ToAccountNo
+          Time
+
+      A 과 B 가 친구라면 A↔B, B↔A 두 경우를 모두 저장한다. 관계를 끊을 때에도 둘 다 삭제한다.
+  
+ 
+3. 친구 요청 FRIEND_REQUESt
+
+        FriendRequest
+
+          FromAccountNo
+          ToAccountNo
+          Time
+
+
+
+## 💡 프로토콜
+1. 패킷 구조
+
   ![capture](https://github.com/kbm0996/-Network-SelectModel-FriendManager/blob/master/Friend_mail_Readme/PacketStructure.PNG)
   
   *\*figure 3. Packet Structure*
+  
+       struct st_PACKET_HEADER
+       {
+         BYTE	byCode;
+
+         WORD	wMsgType;
+         WORD	wPayloadSize;
+       };
+
+
+  
+2. 메세지 타입 및 패이로드 데이터
+
+- 회원가입 요청
+
+       #define df_REQ_ACCOUNT_ADD				1
+       WCHAR[df_NICK_MAX_LEN]	닉네임
+
+- 회원가입 결과
+
+       #define df_RES_ACCOUNT_ADD				2
+       UINT64		AccountNo
+
+- 회원로그인
+
+       #define df_REQ_LOGIN					3
+       UINT64		AccountNo
+
+- 회원로그인 결과
+
+       #define df_RES_LOGIN					4
+       UINT64					AccountNo		// 0 이면 실패
+       WCHAR[df_NICK_MAX_LEN]	NickName
+
+- 회원리스트 요청
+
+       #define df_REQ_ACCOUNT_LIST				10
+
+- 회원리스트 결과
+
+       #define df_RES_ACCOUNT_LIST				11
+       UINT	Count		// 회원 수
+       {
+           UINT64					AccountNo
+           WCHAR[df_NICK_MAX_LEN]	NickName
+       }
+
+- 친구목록 요청
+
+       #define df_REQ_FRIEND_LIST				12
+
+- 친구목록 결과
+
+       #define df_RES_FRIEND_LIST				13
+       UINT	FriendCount
+       {
+           UINT64					FriendAccountNo
+           WCHAR[df_NICK_MAX_LEN]	NickName
+       }	
+
+
+- 친구요청 보낸 목록 요청
+
+        #define df_REQ_FRIEND_REQUEST_LIST		14
+
+- 친구목록 결과
+
+        #define df_RES_FRIEND_REQUEST_LIST		15
+        UINT	FriendCount
+        {
+            UINT64					FriendAccountNo
+            WCHAR[df_NICK_MAX_LEN]	NickName
+        }	
+
+- 친구요청 받은거 목록  요청
+
+        #define df_REQ_FRIEND_REPLY_LIST		16
+
+- 친구목록 결과
+
+        #define df_RES_FRIEND_REPLY_LIST		17
+        UINT	FriendCount
+        {
+            UINT64					FriendAccountNo
+            WCHAR[df_NICK_MAX_LEN]	NickName
+        }	
+
+- 친구관계 끊기
+
+      #define df_REQ_FRIEND_REMOVE			20
+      UINT64	FriendAccountNo
+      
+- 친구관계 끊기 결과
+
+      #define df_RES_FRIEND_REMOVE			21
+      UINT64	FriendAccountNo
+      BYTE	Result
+
+      #define df_RESULT_FRIEND_REMOVE_OK			1
+      #define df_RESULT_FRIEND_REMOVE_NOTFRIEND	2
+      #define df_RESULT_FRIEND_REMOVE_FAIL		3
+
+- 친구요청
+
+      #define df_REQ_FRIEND_REQUEST			22
+      UINT64	FriendAccountNo
+
+- 친구요청 결과
+
+      #define df_RES_FRIEND_REQUEST			23
+      UINT64	FriendAccountNo
+      BYTE	Result
+
+      #define df_RESULT_FRIEND_REQUEST_OK			1
+      #define df_RESULT_FRIEND_REQUEST_NOTFOUND	2
+      #define df_RESULT_FRIEND_REQUEST_AREADY		3
+
+
+- 친구요청 취소
+
+      #define df_REQ_FRIEND_CANCEL			24
+      UINT64	FriendAccountNo
+
+- 친구요청취소 결과
+
+      #define df_RES_FRIEND_CANCEL			25
+      UINT64	FriendAccountNo
+      BYTE	Result
+
+      #define df_RESULT_FRIEND_CANCEL_OK			1
+      #define df_RESULT_FRIEND_CANCEL_NOTFRIEND	2
+      #define df_RESULT_FRIEND_CANCEL_FAIL		3
+
+- 친구요청 거부
+
+      #define df_REQ_FRIEND_DENY				26
+      UINT64	FriendAccountNo
+
+- 친구요청 거부 결과
+
+      #define df_RES_FRIEND_DENY				27
+      UINT64	FriendAccountNo
+      BYTE	Result
+
+      #define df_RESULT_FRIEND_DENY_OK			1
+      #define df_RESULT_FRIEND_DENY_NOTFRIEND		2
+      #define df_RESULT_FRIEND_DENY_FAIL			3
+
+- 친구요청 수락
+
+      #define df_REQ_FRIEND_AGREE				28
+      UINT64	FriendAccountNo
+
+- 친구요청 수락 결과
+
+      #define df_RES_FRIEND_AGREE				29
+      UINT64	FriendAccountNo
+      BYTE	Result
+
+      #define df_RESULT_FRIEND_AGREE_OK			1
+      #define df_RESULT_FRIEND_AGREE_NOTFRIEND	2
+      #define df_RESULT_FRIEND_AGREE_FAIL			3
+
+- 스트레스 테스트용 에코
+
+      #define df_REQ_STRESS_ECHO				100
+      WORD		Size
+      Size		문자열 (WCHAR 유니코드)
+
+- 스트레스 테스트용 에코응답
+
+      #define df_RES_STRESS_ECHO				101
+      WORD		Size
+      Size		문자열 (WCHAR 유니코드)
