@@ -36,7 +36,6 @@
 3. 친구 요청 FRIEND_REQUESt
 
         FriendRequest
-
           FromAccountNo
           ToAccountNo
           Time
